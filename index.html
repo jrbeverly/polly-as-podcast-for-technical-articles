@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polly Podcast Variants</title>
+<style>
+  body { margin: 0; font: 16px/1.6 system-ui, sans-serif; color: #fff5e8; background: linear-gradient(165deg, #2a1608, #16122a 55%, #0b1b26); min-height: 100vh; }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 16px; }
+  h1 { font-size: clamp(2rem, 6vw, 3rem); line-height: 1.05; margin: 0 0 12px; }
+  .lede { color: #d6c3ad; margin: 0 0 24px; }
+  .player { position: sticky; top: 0; z-index: 1; padding: 12px 0; background: #1a1320f2; backdrop-filter: blur(6px); }
+  .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .variant { padding: 8px 10px; font-size: .9rem; line-height: 1.35; font: inherit; color: inherit; text-align: left; background: #ffffff0d; border: 1px solid #ffffff1f; border-radius: 12px; cursor: pointer; }
+  .variant:hover { border-color: #ffb45c88; }
+  .variant[aria-pressed="true"] { background: #ffb45c24; border-color: #ffb45c; }
+  .variant { align-self: stretch; display: flex; flex-direction: column; justify-content: flex-start; }
+  .variant b { display: block; } .variant small { display: block; color: #d6c3ad; font-size: .78rem; }
+  audio { width: 100%; }
+  .turn { display: block; width: 100%; padding: 10px 14px; margin: 8px 0; font: inherit; color: inherit; text-align: left; border: 0; border-left: 4px solid; border-radius: 10px; cursor: pointer; opacity: .7; }
+  .turn b { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; }
+  .host { background: #ffb45c14; border-color: #ffb45c; } .host b { color: #ffb45c; }
+  .expert { background: #7fc8ff14; border-color: #7fc8ff; margin-left: 24px; width: calc(100% - 24px); } .expert b { color: #7fc8ff; }
+  .turn.now { opacity: 1; outline: 1px solid #ffffff55; }
+  p.foot { color: #d6c3ad; font-size: .9rem; margin-top: 28px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Polly Podcast Variants</h1>
+  <p class="lede">One two-speaker technical script rendered by Amazon Polly with different engines and voices. Switch variants while it plays and it jumps to the same point in the same turn. Click any line to jump there.</p>
+
+  <div class="player">
+    <div class="variants" id="variants"></div>
+    <audio id="player" controls preload="metadata"></audio>
+  </div>
+
+  <div id="script"></div>
+
+  <p class="foot">The neural baseline is intentionally unmastered and about 8 dB quieter than the others.</p>
+</main>
+<script>
+const player = document.getElementById('player');
+const variants = document.getElementById('variants');
+const lines = document.getElementById('script');
+let current;
+
+function turnAt(time) {
+  const turns = current.turns;
+  let i = 0;
+  while (i + 1 < turns.length && turns[i + 1][0] <= time) i++;
+  return i;
+}
+
+function load(timeline, button, seek) {
+  const playing = !player.paused;
+  current = timeline;
+  player.src = `docs/demo/${timeline.variant}.mp3`;
+  player.addEventListener('loadedmetadata', () => {
+    if (seek) player.currentTime = seek();
+    if (playing) player.play();
+  }, { once: true });
+  variants.querySelectorAll('.variant').forEach(v => v.setAttribute('aria-pressed', v === button));
+  lines.querySelectorAll('.turn').forEach(t => {
+    t.querySelector('b').textContent = `${t.dataset.speaker} · ${timeline.voices[t.dataset.speaker]}`;
+  });
+}
+
+player.addEventListener('timeupdate', () => {
+  const i = turnAt(player.currentTime);
+  lines.querySelectorAll('.turn').forEach((t, n) => t.classList.toggle('now', n === i));
+});
+
+Promise.all([
+  fetch('script.json').then(r => r.json()),
+  fetch('docs/demo/index.json').then(r => r.json())
+    .then(names => Promise.all(names.map(n => fetch(`docs/demo/${n}.json`).then(r => r.json())))),
+]).then(([script, timelines]) => {
+  script.turns.forEach((turn, i) => {
+    const line = document.createElement('button');
+    line.className = `turn ${turn.speaker}`;
+    line.dataset.speaker = turn.speaker;
+    line.append(document.createElement('b'), turn.text);
+    line.onclick = () => { player.currentTime = current.turns[i][0]; player.play(); };
+    lines.append(line);
+  });
+
+  timelines.forEach(timeline => {
+    const button = document.createElement('button');
+    button.className = 'variant';
+    const voices = `${timeline.voices.host} + ${timeline.voices.expert}`;
+    const minutes = `${Math.floor(timeline.total_seconds / 60)}:${String(Math.round(timeline.total_seconds % 60)).padStart(2, '0')}`;
+    button.title = timeline.variant;
+    button.innerHTML = `<b>${timeline.variant.split('-')[0]} · ${timeline.engine}</b><small>${voices} · ${minutes}</small>`;
+    button.onclick = () => {
+      if (!current) return load(timeline, button);
+      const i = turnAt(player.currentTime);
+      const [start, length] = current.turns[i];
+      const offset = Math.min((player.currentTime - start) / length, 1);
+      load(timeline, button, () => timeline.turns[i][0] + offset * timeline.turns[i][1]);
+    };
+    variants.append(button);
+  });
+
+  variants.querySelector('.variant').click();
+});
+</script>
+</body>
+</html>

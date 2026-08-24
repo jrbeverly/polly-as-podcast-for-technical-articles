@@ -1,0 +1,83 @@
+{
+  "title": "Working with mTLS services in AWS",
+  "turns": [
+    {
+      "speaker": "host",
+      "text": "Alright, mutual TLS. Everyone nods when it comes up in a design review, and then nobody wants to be the person who actually rolls it out. So let's be specific. Where does it really go wrong?"
+    },
+    {
+      "speaker": "expert",
+      "text": "Honestly, not in the handshake. The handshake is the easy part. Both sides present a certificate, both sides verify the other one's chain, and you're done. The hard part is everything around the certificate. Who issues it, how long it lives, and what happens the morning it expires."
+    },
+    {
+      "speaker": "host",
+      "text": "So the protocol isn't really the problem. It's the lifecycle around it that eats you."
+    },
+    {
+      "speaker": "expert",
+      "text": "Right. And in AWS, the first real decision you make isn't cryptographic at all. It's where you terminate.",
+      "gap_after_ms": 480
+    },
+    {
+      "speaker": "host",
+      "text": "Meaning either the load balancer handles it, or you push it all the way down into the service itself. What does that choice actually cost me?"
+    },
+    {
+      "speaker": "expert",
+      "text": "If you put an Application Load Balancer in front, you get two modes. In verify mode, the ALB validates the client certificate against a trust store. That trust store is just a bundle of CA certificates sitting in an S3 bucket. A bad certificate never reaches your application at all."
+    },
+    {
+      "speaker": "host",
+      "text": "Okay, so, passthrough. If the load balancer isn't validating anything, what am I actually getting out of it? Because honestly, that sounds strictly worse to me."
+    },
+    {
+      "speaker": "expert",
+      "text": "It does sound worse. It usually isn't. The load balancer forwards the whole client certificate chain to your app in a header, and your code decides. The interesting question is almost never, is this certificate valid. It's, which service is this, and is it allowed to call me? Passthrough hands you the whole chain and lets your own code answer that."
+    },
+    {
+      "speaker": "host",
+      "text": "And that identity is sitting inside the certificate itself, then. Not in some separate lookup off to the side."
+    },
+    {
+      "speaker": "expert",
+      "text": "It lives in the subject alternative name. If you're issuing from AWS Private CA, you control that field. So you can put a real workload identity in there. A SPIFFE ID, a service name. And then authorization becomes a string comparison instead of a network diagram."
+    },
+    {
+      "speaker": "host",
+      "text": "Alright, so that's the shape of it. What's the thing that actually bites people once this is running in production?",
+      "gap_after_ms": 420
+    },
+    {
+      "speaker": "expert",
+      "text": "Two things. On API Gateway, you can configure mTLS beautifully on your custom domain, and then leave the default execute-api endpoint switched on. Every client can simply skip past it. The mutual TLS is real. It just isn't on the door people are using."
+    },
+    {
+      "speaker": "host",
+      "text": "Oh, that's a good one. That's the kind of thing you only find once, and then never forget again."
+    },
+    {
+      "speaker": "expert",
+      "text": "The second is rotation. A certificate is a deadline you agreed to months ago. If you don't have automated renewal before you have mTLS, you don't have mTLS. You have a scheduled outage."
+    },
+    {
+      "speaker": "host",
+      "text": "So how do you find out that it's failing? Because I'm assuming this doesn't show up anywhere obvious."
+    },
+    {
+      "speaker": "expert",
+      "text": "That's the other tax. A rejected handshake isn't a 403 in your application logs. It's a TLS error out at the edge. So you find it in ALB access logs and CloudWatch metrics, not in the traces your team actually watches. Wire that up on day one. Otherwise your first real incident is forty minutes of people staring at a service that looks completely healthy."
+    },
+    {
+      "speaker": "host",
+      "text": "Right, so if I'm writing this down. Start at the edge, put the identity in the certificate, automate the renewal before you ever turn it on, and log the handshake itself."
+    },
+    {
+      "speaker": "expert",
+      "text": "And keep the trust store small. Every extra certificate authority in there is another key that can mint a client you never meant to trust."
+    },
+    {
+      "speaker": "host",
+      "text": "That's a good place to stop. Thanks for walking through it."
+    }
+  ]
+}
